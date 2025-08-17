@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>全能计算器 | Universal Calculator</title>
+<meta name="theme-color" content="#111">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23111'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%23fff' font-family='Arial' font-size='36'%3E%F0%9F%93%9A%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0f1115;
+  --panel:#151922;
+  --panel-2:#1b2030;
+  --ink:#eaeef4;
+  --muted:#9aa3b2;
+  --acc:#4dd0e1;
+  --danger:#ff6b6b;
+  --ok:#4caf50;
+  --warn:#ffc107;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:linear-gradient(180deg,#0f1115,#0b0d11);color:var(--ink);font-family:var(--sans);display:flex;flex-direction:column;
+}
+header{
+  position:sticky;top:0;background:rgba(15,17,21,.7);backdrop-filter:blur(8px);
+  border-bottom:1px solid #222;padding:12px 16px;display:flex;gap:12px;align-items:center;z-index:5;
+}
+header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.2px}
+small.badge{background:var(--panel);padding:4px 8px;border-radius:8px;color:var(--muted);}
+.container{max-width:1100px;margin:16px auto;padding:0 12px;display:grid;gap:12px;grid-template-columns:1fr;flex:1;width:100%}
+nav.tabs{display:flex;flex-wrap:wrap;gap:8px}
+nav.tabs button{
+  background:var(--panel);border:1px solid #242836;color:var(--ink);padding:10px 12px;border-radius:10px;cursor:pointer;
+  font-weight:600;letter-spacing:.2px
+}
+nav.tabs button.active{background:var(--panel-2);border-color:#2e3448;box-shadow:0 0 0 2px #2e3448 inset}
+.panel{background:var(--panel);border:1px solid #22293a;border-radius:14px;padding:14px}
+.grid{display:grid;gap:10px}
+.grid.cols-2{grid-template-columns:1fr 1fr}
+.grid.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.grid.cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.grid.cols-5{grid-template-columns:repeat(5,minmax(0,1fr))}
+@media (max-width:740px){
+  .grid.cols-2,.grid.cols-3,.grid.cols-4,.grid.cols-5{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+.display{
+  background:var(--panel-2);border:1px solid #2a3145;border-radius:12px;padding:10px 12px;font-family:var(--mono);
+  font-size:22px;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:54px
+}
+.display .expr{opacity:.9;word-break:break-all}
+.display .ans{color:var(--acc);font-weight:700}
+.kbd{font-family:var(--mono);font-size:12px;color:var(--muted);background:#0c0e13;border:1px solid #202635;padding:2px 6px;border-radius:6px}
+.btn{
+  background:linear-gradient(180deg,#242a3b,#20263a);border:1px solid #2b3248;color:var(--ink);
+  padding:12px;border-radius:12px;cursor:pointer;font-weight:600;transition:transform .05s ease;user-select:none
+}
+.btn:hover{filter:brightness(1.05)}
+.btn:active{transform:scale(.98)}
+.btn.secondary{background:linear-gradient(180deg,#1f2433,#1a1f2b)}
+.btn.accent{background:linear-gradient(180deg,#116a74,#0f5b63);border-color:#147b86}
+.btn.warn{background:linear-gradient(180deg,#6f2b2b,#5a2424);border-color:#7b3333}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+input,select,textarea{
+  background:#0f131d;border:1px solid #2a3145;border-radius:10px;color:var(--ink);padding:10px 12px;font:inherit
+}
+label{font-size:13px;color:var(--muted)}
+blockquote.tip{margin:0;border-left:3px solid var(--acc);padding:8px 12px;background:#0c121c;color:#cfe; border-radius:8px}
+footer{padding:16px;color:var(--muted);text-align:center}
+small.mono{font-family:var(--mono)}
+hr.sep{border:none;border-top:1px dashed #2a3145;margin:12px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>全能计算器</h1>
+  <small class="badge">离线 · 单文件 · PWA</small>
+</header>
+
+<div class="container">
+  <nav class="tabs" id="tabs"></nav>
+  <section id="content" class="panel"></section>
+</div>
+
+<footer>
+  <div>Made with ❤️ · 可安装到桌面（支持离线）</div>
+  <small class="mono">v1.0 · 在输入框里直接键入表达式，Enter 计算，↑↓浏览历史</small>
+</footer>
+
+<script>
+// --- Simple PWA (service worker inlined via Blob) ---
+(function(){
+  if ('serviceWorker' in navigator) {
+    const swCode = `self.addEventListener('install', e=>{self.skipWaiting()});
+self.addEventListener('activate', e=>{clients.claim()});
+self.addEventListener('fetch', e=>{e.respondWith(caches.open('ucalc-v1').then(c=>c.match(e.request).then(r=>r||fetch(e.request).then(resp=>{try{c.put(e.request,resp.clone())}catch(e){}return resp}))))});`;
+    const blob = new Blob([swCode], {type:'text/javascript'});
+    const url = URL.createObjectURL(blob);
+    navigator.serviceWorker.register(url).catch(()=>{});
+  }
+})();
+
+// --- Minimal expression engine (supports + - * / % ^, parentheses, functions) ---
+const DEG = Math.PI/180;
+const funcs = {
+  sin:(x)=>Math.sin(x), cos:(x)=>Math.cos(x), tan:(x)=>Math.tan(x),
+  asin:(x)=>Math.asin(x), acos:(x)=>Math.acos(x), atan:(x)=>Math.atan(x),
+  sinh:(x)=>Math.sinh(x), cosh:(x)=>Math.cosh(x), tanh:(x)=>Math.tanh(x),
+  log:(x)=>Math.log10(x), ln:(x)=>Math.log(x), sqrt:(x)=>Math.sqrt(x),
+  abs:(x)=>Math.abs(x), floor:(x)=>Math.floor(x), ceil:(x)=>Math.ceil(x),
+  round:(x)=>Math.round(x), exp:(x)=>Math.exp(x), fact:(n)=>{n=Math.floor(n);if(n<0) return NaN; let r=1; for(let i=2;i<=n;i++) r*=i; return r;},
+  rad:(x)=>x*DEG, deg:(x)=>x/DEG
+};
+const constants = { pi:Math.PI, e:Math.E, tau:2*Math.PI };
+
+function tokenize(s){
+  const tokens=[];
+  const re=/\s*([A-Za-z_][A-Za-z_0-9]*|[0-9]*\.?[0-9]+(?:e[+\-]?[0-9]+)?|[()+\-*/%^,]|∞|∞)|\s*/gy;
+  let m; let i=0;
+  while(i<s.length){
+    re.lastIndex=i; m=re.exec(s);
+    if(!m || m.index!==i) throw Error('非法字符: '+s[i]);
+    const t=m[1]; if(t){ tokens.push(t) } i=re.lastIndex;
+  }
+  return tokens;
+}
+function parseExpr(tokens){
+  let i=0;
+  function peek(){ return tokens[i] }
+  function eat(t){ if(tokens[i]===t){ i++; return true } return false }
+  function primary(){
+    if(eat('(')){ const v=expr(); if(!eat(')')) throw Error('缺少 )'); return v }
+    const t=peek();
+    if(t && /^[0-9]/.test(t)){ i++; return parseFloat(t) }
+    if(t && /^[A-Za-z_]/.test(t)){
+      i++;
+      const name=t.toLowerCase();
+      if(eat('(')){
+        const args=[]; if(!eat(')')){ do{ args.push(expr()) } while(eat(',')); if(!eat(')')) throw Error('缺少 )') }
+        if(!(name in funcs)) throw Error('未知函数: '+name);
+        return funcs[name].apply(null,args);
+      } else {
+        if(!(name in constants)) throw Error('未知常量: '+name);
+        return constants[name];
+      }
+    }
+    if(eat('-')) return -primary();
+    if(eat('+')) return +primary();
+    throw Error('无法解析的位置');
+  }
+  function power(){ // right-assoc ^
+    let left=primary();
+    while(eat('^')){ const right=power(); left=Math.pow(left,right) }
+    return left;
+  }
+  function term(){
+    let left=power();
+    while(true){
+      if(eat('*')) left = left * power();
+      else if(eat('/')) left = left / power();
+      else if(eat('%')) left = left % power();
+      else break;
+    }
+    return left;
+  }
+  function expr(){
+    let left=term();
+    while(true){
+      if(eat('+')) left = left + term();
+      else if(eat('-')) left = left - term();
+      else break;
+    }
+    return left;
+  }
+  const v = expr();
+  if(i!==tokens.length) throw Error('多余输入');
+  return v;
+}
+function evaluateExpression(input){
+  const tokens = tokenize(input.replace(/×/g,'*').replace(/÷/g,'/'));
+  return parseExpr(tokens);
+}
+function fmt(n){
+  if(!isFinite(n)) return '错误';
+  if(Math.abs(n)===0) return '0';
+  if(Math.abs(n) >= 1e10 || Math.abs(n) < 1e-8) return n.toExponential(10).replace(/0+e/,'e').replace(/(\.\d*?)0+e/,'$1e');
+  let s = String(Number(n.toPrecision(12)));
+  return s;
+}
+
+// --- UI Framework ---
+const TABS = [
+  {id:'std', name:'标准', render:renderStandard},
+  {id:'sci', name:'科学', render:renderScientific},
+  {id:'prog', name:'程序员', render:renderProgrammer},
+  {id:'unit', name:'单位换算', render:renderUnits},
+  {id:'date', name:'日期', render:renderDates},
+  {id:'loan', name:'贷款/按揭', render:renderLoan},
+  {id:'stats', name:'统计', render:renderStats},
+  {id:'misc', name:'实用工具', render:renderMisc}
+];
+const tabsEl = document.getElementById('tabs');
+const contentEl = document.getElementById('content');
+let active = localStorage.getItem('ucalc_tab') || 'std';
+
+function switchTab(id){
+  active = id; localStorage.setItem('ucalc_tab', id);
+  render();
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.id===id));
+}
+function render(){
+  contentEl.innerHTML='';
+  const tab = TABS.find(t=>t.id===active) || TABS[0];
+  tab.render(contentEl);
+}
+TABS.forEach(t=>{
+  const b=document.createElement('button');
+  b.textContent=t.name; b.className=''; b.dataset.id=t.id;
+  if(t.id===active) b.classList.add('active');
+  b.onclick=()=>switchTab(t.id);
+  tabsEl.appendChild(b);
+});
+render();
+
+// --- Shared display & pad components ---
+function makeDisplay(container){
+  const wrap = document.createElement('div'); wrap.className='display';
+  const expr = document.createElement('div'); expr.className='expr'; expr.textContent='';
+  const ans = document.createElement('div'); ans.className='ans'; ans.textContent='0';
+  wrap.append(expr, ans); container.appendChild(wrap);
+  return {wrap, expr, ans};
+}
+function attachInputKeybinds(input, onEnter, historyKey='hist'){
+  let hist = JSON.parse(localStorage.getItem(historyKey) || '[]');
+  let idx = hist.length;
+  input.addEventListener('keydown', (e)=>{
+    if(e.key==='Enter'){ e.preventDefault(); onEnter(); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); if(idx>0){ idx--; input.value=hist[idx]||'' } }
+    else if(e.key==='ArrowDown'){ e.preventDefault(); if(idx < hist.length-1){ idx++; input.value=hist[idx]||'' } else { idx=hist.length; input.value='' } }
+  });
+  return function pushHistory(v){
+    if(v && (hist.length===0 || hist[hist.length-1]!==v)){
+      hist.push(v); if(hist.length>200) hist.shift();
+      localStorage.setItem(historyKey, JSON.stringify(hist));
+      idx = hist.length;
+    }
+  }
+}
+
+// --- Standard ---
+function renderStandard(root){
+  const g=document.createElement('div'); g.className='grid'; root.appendChild(g);
+  const disp = makeDisplay(g);
+  const row = document.createElement('div'); row.className='row'; g.appendChild(row);
+  const inp = document.createElement('input'); inp.placeholder='输入表达式，例如: (2+3)*4 - sqrt(9)'; inp.autofocus=true; inp.spellcheck=false; inp.autocomplete='off';
+  row.appendChild(inp);
+  const run = document.createElement('button'); run.className='btn accent'; run.textContent='计算 (Enter)'; row.appendChild(run);
+
+  const pushHist = attachInputKeybinds(inp, calc, 'hist_std');
+  function calc(){
+    const s=inp.value.trim(); if(!s) return;
+    try{
+      const v=evaluateExpression(s);
+      disp.expr.textContent=s;
+      disp.ans.textContent=fmt(v);
+      pushHist(s);
+    }catch(err){
+      disp.expr.textContent=s;
+      disp.ans.textContent='错误: '+err.message;
+    }
+  }
+  run.onclick=calc;
+
+  const keys = [
+    '7','8','9','/','C',
+    '4','5','6','*','(',
+    '1','2','3','-',')',
+    '0','.','=','+','⌫'
+  ];
+  const grid=document.createElement('div'); grid.className='grid cols-5'; g.appendChild(grid);
+  keys.forEach(k=>{
+    const b=document.createElement('button'); b.className='btn'; b.textContent=k; grid.appendChild(b);
+    if(k==='C'){b.classList.add('warn')}
+    if(k==='='){b.classList.add('accent')}
+    b.onclick=()=>{
+      if(k==='C'){ inp.value=''; disp.expr.textContent=''; disp.ans.textContent='0'; return }
+      if(k==='⌫'){ inp.value=inp.value.slice(0,-1); return }
+      if(k==='='){ calc(); return }
+      inp.value += k;
+      inp.focus();
+    }
+  });
+
+  const tip = document.createElement('blockquote'); tip.className='tip';
+  tip.innerHTML='支持函数: <small class="kbd">sin cos tan asin acos atan sinh cosh tanh log ln sqrt abs floor ceil round exp fact rad deg</small> · 常量: <small class="kbd">pi e tau</small>';
+  g.appendChild(tip);
+}
+
+// --- Scientific ---
+function renderScientific(root){
+  const g=document.createElement('div'); g.className='grid'; root.appendChild(g);
+  const disp = makeDisplay(g);
+  const row = document.createElement('div'); row.className='row'; g.appendChild(row);
+  const inp = document.createElement('input'); inp.placeholder='科学计算表达式，例如: sin(rad(30))^2 + log(100)'; inp.autofocus=true; inp.spellcheck=false; inp.autocomplete='off';
+  row.appendChild(inp);
+  const run = document.createElement('button'); run.className='btn accent'; run.textContent='计算'; row.appendChild(run);
+  const pushHist = attachInputKeybinds(inp, calc, 'hist_sci');
+
+  function calc(){
+    const s=inp.value.trim(); if(!s) return;
+    try{ const v=evaluateExpression(s); disp.expr.textContent=s; disp.ans.textContent=fmt(v); pushHist(s) }
+    catch(err){ disp.expr.textContent=s; disp.ans.textContent='错误: '+err.message }
+  }
+  run.onclick=calc;
+
+  const funcsPad = [
+    'sin(','cos(','tan(','asin(','acos(','atan(','sinh(','cosh(','tanh(',
+    'log(','ln(','sqrt(','exp(','abs(','floor(','ceil(','round(','fact(',
+    'pi','e','tau','^','(',')',',','+','-','*','/','%','rad(','deg('
+  ];
+  const grid=document.createElement('div'); grid.className='grid cols-5'; g.appendChild(grid);
+  funcsPad.forEach(k=>{
+    const b=document.createElement('button'); b.className='btn secondary'; b.textContent=k; grid.appendChild(b);
+    b.onclick=()=>{ inp.value += k; inp.focus() }
+  });
+}
+
+// --- Programmer ---
+function renderProgrammer(root){
+  const g=document.createElement('div'); g.className='grid'; root.appendChild(g);
+
+  // Converter
+  const box=document.createElement('div'); box.className='panel'; g.appendChild(box);
+  box.innerHTML='<h3>进制转换</h3>';
+  const conv = document.createElement('div'); conv.className='grid cols-2'; box.appendChild(conv);
+  const bases = [{k:2,l:'二进制'},{k:8,l:'八进制'},{k:10,l:'十进制'},{k:16,l:'十六进制'}];
+  const fields = {};
+  bases.forEach(b=>{
+    const wrap=document.createElement('div'); wrap.className='grid'; conv.appendChild(wrap);
+    const lab=document.createElement('label'); lab.textContent=b.l; wrap.appendChild(lab);
+    const inp=document.createElement('input'); inp.placeholder=b.l; inp.dataset.base=b.k; inp.spellcheck=false; wrap.appendChild(inp);
+    fields[b.k]=inp;
+    inp.addEventListener('input', ()=>{
+      const val=inp.value.trim();
+      if(val===''){ Object.values(fields).forEach(x=>x.value=''); return }
+      let n;
+      try{
+        if(b.k===10){ n = BigInt(val) }
+        else{ n = BigInt(parseInt(val, b.k)) }
+      }catch(e){ return }
+      for(const bb of bases){
+        if(bb.k===b.k) continue;
+        const v = n.toString(bb.k);
+        fields[bb.k].value = bb.k===16 ? v.toUpperCase() : v;
+      }
+    });
+  });
+
+  // Bitwise calc
+  const box2=document.createElement('div'); box2.className='panel'; g.appendChild(box2);
+  box2.innerHTML='<h3>按位运算</h3>';
+  const r=document.createElement('div'); r.className='grid cols-2'; box2.appendChild(r);
+  const a=document.createElement('input'); a.placeholder='A (十进制整数)'; a.spellcheck=false;
+  const b=document.createElement('input'); b.placeholder='B (十进制整数)'; b.spellcheck=false;
+  r.append(a,b);
+  const opsRow=document.createElement('div'); opsRow.className='row'; box2.appendChild(opsRow);
+  const out=document.createElement('div'); out.className='display'; out.style.marginTop='6px'; out.innerHTML='<div class="expr">结果 (十进制)</div><div class="ans">0</div>'; box2.appendChild(out);
+  ['A&B','A|B','A^B','~A','A<<B','A>>B'].forEach(op=>{
+    const btn=document.createElement('button'); btn.className='btn'; btn.textContent=op; opsRow.appendChild(btn);
+    btn.onclick=()=>{
+      try{
+        const ai=BigInt(a.value||'0'); const bi=BigInt(b.value||'0');
+        let r;
+        switch(op){
+          case 'A&B': r=ai & bi; break;
+          case 'A|B': r=ai | bi; break;
+          case 'A^B': r=ai ^ bi; break;
+          case '~A': r=~ai; break;
+          case 'A<<B': r=ai << bi; break;
+          case 'A>>B': r=ai >> bi; break;
+        }
+        out.querySelector('.ans').textContent=r.toString();
+      }catch(e){ out.querySelector('.ans').textContent='错误' }
+    };
+  });
+
+  // Byte size
+  const box3=document.createElement('div'); box3.className='panel'; g.appendChild(box3);
+  box3.innerHTML='<h3>字节换算</h3>';
+  const r3=document.createElement('div'); r3.className='row'; box3.appendChild(r3);
+  const byIn=document.createElement('input'); byIn.placeholder='输入字节数 (Byte)'; r3.appendChild(byIn);
+  const byOut=document.createElement('div'); byOut.className='display'; byOut.style.flex='1'; byOut.innerHTML='<div class="expr">人类可读</div><div class="ans">0 B</div>'; r3.appendChild(byOut);
+  const units=['B','KB','MB','GB','TB','PB'];
+  function humanBytes(n){
+    n=Number(n); if(!isFinite(n)||n<0) return '错误';
+    let i=0; while(n>=1024 && i<units.length-1){ n/=1024; i++ }
+    return `${n.toFixed(2)} ${units[i]}`;
+  }
+  byIn.addEventListener('input',()=>{ byOut.querySelector('.ans').textContent=humanBytes(byIn.value) });
+}
+
+// --- Units ---
+function renderUnits(root){
+  const box=document.createElement('div'); box.className='grid'; root.appendChild(box);
+
+  function unitPanel(title, items, factorToBase){
+    const p=document.createElement('div'); p.className='panel'; box.appendChild(p);
+    const h=document.createElement('h3'); h.textContent=title; p.appendChild(h);
+    const grid=document.createElement('div'); grid.className='grid cols-3'; p.appendChild(grid);
+    const inputs={};
+    items.forEach(({k,l})=>{
+      const wrap=document.createElement('div'); wrap.className='grid'; grid.appendChild(wrap);
+      const lab=document.createElement('label'); lab.textContent=l; wrap.appendChild(lab);
+      const inp=document.createElement('input'); inp.placeholder=l; inp.spellcheck=false; wrap.appendChild(inp);
+      inputs[k]=inp;
+      inp.addEventListener('input',()=>{
+        const v=Number(inp.value); if(!isFinite(v)){ return }
+        const base = v * factorToBase[k];
+        items.forEach(({k:kk})=>{
+          if(kk===k) return;
+          inputs[kk].value = base / factorToBase[kk];
+        });
+      });
+    });
+  }
+
+  unitPanel('长度', [
+    {k:'m',l:'米 (m)'},{k:'km',l:'千米 (km)'},{k:'cm',l:'厘米 (cm)'},
+    {k:'mm',l:'毫米 (mm)'},{k:'in',l:'英寸 (in)'},{k:'ft',l:'英尺 (ft)'}
+  ], {m:1,km:1000,cm:0.01,mm:0.001,in:0.0254,ft:0.3048});
+
+  unitPanel('质量', [
+    {k:'kg',l:'千克 (kg)'},{k:'g',l:'克 (g)'},{k:'lb',l:'磅 (lb)'}
+  ], {kg:1,g:0.001,lb:0.45359237});
+
+  unitPanel('体积', [
+    {k:'l',l:'升 (L)'},{k:'ml',l:'毫升 (mL)'},{k:'gal',l:'加仑 (美制)'}
+  ], {l:1,ml:0.001,gal:3.785411784});
+
+  unitPanel('温度', [
+    {k:'c',l:'摄氏 (°C)'},{k:'f',l:'华氏 (°F)'},{k:'k',l:'开尔文 (K)'}
+  ], {
+    c:1,f:1,k:1 // not used
+  });
+  const tempPanel = box.lastChild;
+  const [cInp,fInp,kInp] = tempPanel.querySelectorAll('input');
+  const syncT = (src)=>{
+    const c = src==='c' ? Number(cInp.value) : src==='f' ? (Number(fInp.value)-32)*5/9 : Number(kInp.value)-273.15;
+    if(src!=='c') cInp.value = c;
+    if(src!=='f') fInp.value = c*9/5+32;
+    if(src!=='k') kInp.value = c+273.15;
+  };
+  cInp.addEventListener('input',()=>syncT('c'));
+  fInp.addEventListener('input',()=>syncT('f'));
+  kInp.addEventListener('input',()=>syncT('k'));
+
+  // Currency (manual rate)
+  const cur=document.createElement('div'); cur.className='panel'; box.appendChild(cur);
+  cur.innerHTML='<h3>货币（自填汇率）</h3>';
+  const row=document.createElement('div'); row.className='row'; cur.appendChild(row);
+  const amount=document.createElement('input'); amount.placeholder='金额'; row.appendChild(amount);
+  const from=document.createElement('select'); from.innerHTML='<option>USD</option><option>CNY</option><option>EUR</option><option>JPY</option><option>HKD</option>'; row.appendChild(from);
+  const to=document.createElement('select'); to.innerHTML=from.innerHTML; row.appendChild(to);
+  const rate=document.createElement('input'); rate.placeholder='手动输入汇率 (1 FROM = ? TO)'; row.appendChild(rate);
+  const out=document.createElement('div'); out.className='display'; out.style.flex='1'; out.innerHTML='<div class="expr">结果</div><div class="ans">0</div>'; cur.appendChild(out);
+  const btn=document.createElement('button'); btn.className='btn accent'; btn.textContent='换算'; cur.appendChild(btn);
+  btn.onclick=()=>{
+    const a=Number(amount.value), r=Number(rate.value);
+    if(!isFinite(a)||!isFinite(r)||r<=0){ out.querySelector('.ans').textContent='错误'; return }
+    out.querySelector('.ans').textContent = fmt(a*r) + ' ' + to.value;
+  };
+}
+
+// --- Dates ---
+function renderDates(root){
+  const g=document.createElement('div'); g.className='grid'; root.appendChild(g);
+
+  const diff=document.createElement('div'); diff.className='panel'; g.appendChild(diff);
+  diff.innerHTML='<h3>日期差</h3>';
+  const r=document.createElement('div'); r.className='row'; diff.appendChild(r);
+  const a=document.createElement('input'); a.type='date'; const b=document.createElement('input'); b.type='date';
+  r.append(a,b);
+  const out=document.createElement('div'); out.className='display'; out.innerHTML='<div class="expr">相差</div><div class="ans">0 天</div>'; diff.appendChild(out);
+  [a,b].forEach(x=>x.addEventListener('input',()=>{
+    if(!a.value||!b.value) return;
+    const d = Math.abs((new Date(b.value) - new Date(a.value))/(1000*60*60*24));
+    out.querySelector('.ans').textContent = `${d} 天`;
+  }));
+
+  const add=document.createElement('div'); add.className='panel'; g.appendChild(add);
+  add.innerHTML='<h3>日期加减</h3>';
+  const r2=document.createElement('div'); r2.className='row'; add.appendChild(r2);
+  const base=document.createElement('input'); base.type='date'; r2.appendChild(base);
+  const delta=document.createElement('input'); delta.type='number'; delta.placeholder='天数(可负)'; r2.appendChild(delta);
+  const res=document.createElement('div'); res.className='display'; res.innerHTML='<div class="expr">结果</div><div class="ans">—</div>'; add.appendChild(res);
+  [base,delta].forEach(x=>x.addEventListener('input',()=>{
+    if(!base.value || delta.value==='') return;
+    const d = new Date(base.value); d.setDate(d.getDate()+Number(delta.value));
+    res.querySelector('.ans').textContent = d.toISOString().slice(0,10);
+  }));
+}
+
+// --- Loan/Mortgage ---
+function renderLoan(root){
+  const p=document.createElement('div'); p.className='panel'; root.appendChild(p);
+  p.innerHTML='<h3>贷款/按揭计算器</h3>';
+  const r=document.createElement('div'); r.className='grid cols-3'; p.appendChild(r);
+  const principal=document.createElement('input'); principal.type='number'; principal.placeholder='贷款本金';
+  const rate=document.createElement('input'); rate.type='number'; rate.placeholder='年利率 %';
+  const years=document.createElement('input'); years.type='number'; years.placeholder='年限';
+  r.append(principal, rate, years);
+  const out=document.createElement('div'); out.className='display'; out.innerHTML='<div class="expr">每月还款</div><div class="ans">—</div>'; p.appendChild(out);
+  const btn=document.createElement('button'); btn.className='btn accent'; btn.textContent='计算'; p.appendChild(btn);
+  btn.onclick=()=>{
+    const P=Number(principal.value), y=Number(years.value), r=Number(rate.value)/100/12;
+    const n=y*12;
+    if(!isFinite(P)||!isFinite(y)||!isFinite(r)||P<=0||y<=0||r<=0){ out.querySelector('.ans').textContent='错误'; return }
+    const m = P * r * Math.pow(1+r,n) / (Math.pow(1+r,n)-1);
+    out.querySelector('.ans').textContent = fmt(m);
+  };
+}
+
+// --- Stats ---
+function renderStats(root){
+  const p=document.createElement('div'); p.className='panel'; root.appendChild(p);
+  p.innerHTML='<h3>统计计算</h3><p>输入用逗号或空白分隔的数字</p>';
+  const inp=document.createElement('textarea'); inp.rows=5; inp.placeholder='例如: 1, 2, 3, 4, 5'; p.appendChild(inp);
+  const res=document.createElement('div'); res.className='grid cols-2'; p.appendChild(res);
+  function parseNums(s){
+    return s.split(/[\s,]+/).map(Number).filter(x=>isFinite(x));
+  }
+  function calc(nums){
+    if(nums.length===0) return {};
+    const n=nums.length;
+    const sum=nums.reduce((a,b)=>a+b,0);
+    const mean=sum/n;
+    const sorted=[...nums].sort((a,b)=>a-b);
+    const median=n%2?sorted[(n-1)/2]:(sorted[n/2-1]+sorted[n/2])/2;
+    const min=sorted[0], max=sorted[sorted.length-1];
+    const varp=nums.reduce((a,b)=>a+(b-mean)**2,0)/n;
+    const vars=nums.reduce((a,b)=>a+(b-mean)**2,0)/(n-1);
+    return {n,sum,mean,median,min,max,varp,vars,stdevp:Math.sqrt(varp),stdevs:Math.sqrt(vars)};
+  }
+  const table=document.createElement('div'); table.className='grid cols-2'; res.appendChild(table);
+  const fields={};
+  ['数量','总和','均值','中位数','最小','最大','方差(总体)','方差(样本)','标准差(总体)','标准差(样本)'].forEach((k,i)=>{
+    const lab=document.createElement('div'); lab.textContent=k; lab.style.color='var(--muted)';
+    const val=document.createElement('div'); val.className='kbd'; val.textContent='—';
+    table.append(lab,val); fields[i]=val;
+  });
+  inp.addEventListener('input',()=>{
+    const nums=parseNums(inp.value); const r=calc(nums);
+    const vals=[r.n,r.sum,r.mean,r.median,r.min,r.max,r.varp,r.vars,r.stdevp,r.stdevs].map(v=>v==null?'—':fmt(v));
+    Object.keys(fields).forEach((i)=>fields[i].textContent=vals[i]);
+  });
+}
+
+// --- Misc ---
+function renderMisc(root){
+  const g=document.createElement('div'); g.className='grid'; root.appendChild(g);
+
+  // BMI / Tip Split
+  const p1=document.createElement('div'); p1.className='panel'; g.appendChild(p1);
+  p1.innerHTML='<h3>BMI 计算</h3>';
+  const r=document.createElement('div'); r.className='grid cols-3'; p1.appendChild(r);
+  const h=document.createElement('input'); h.type='number'; h.placeholder='身高 (m)';
+  const w=document.createElement('input'); w.type='number'; w.placeholder='体重 (kg)';
+  const out=document.createElement('div'); out.className='display'; out.innerHTML='<div class="expr">BMI</div><div class="ans">—</div>'; p1.appendChild(out);
+  r.append(h,w);
+  [h,w].forEach(x=>x.addEventListener('input',()=>{
+    const hv=Number(h.value), wv=Number(w.value);
+    if(hv>0&&wv>0){ out.querySelector('.ans').textContent=fmt(wv/(hv*hv)) }
+  }));
+
+  const p2=document.createElement('div'); p2.className='panel'; g.appendChild(p2);
+  p2.innerHTML='<h3>小费/AA 分摊</h3>';
+  const r2=document.createElement('div'); r2.className='grid cols-4'; p2.appendChild(r2);
+  const bill=document.createElement('input'); bill.type='number'; bill.placeholder='账单金额';
+  const tip=document.createElement('input'); tip.type='number'; tip.placeholder='小费 %';
+  const ppl=document.createElement('input'); ppl.type='number'; ppl.placeholder='人数';
+  const res=document.createElement('div'); res.className='display'; res.innerHTML='<div class="expr">人均</div><div class="ans">—</div>';
+  r2.append(bill,tip,ppl); p2.append(res);
+  [bill,tip,ppl].forEach(x=>x.addEventListener('input',()=>{
+    const b=Number(bill.value), t=Number(tip.value)/100, p=Number(ppl.value);
+    if(b>0&&p>0){ const total=b*(1+(isFinite(t)?t:0)); res.querySelector('.ans').textContent=fmt(total/p) }
+  }));
+}
+
+</script>
+</body>
+</html>
